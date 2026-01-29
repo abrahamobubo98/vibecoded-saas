@@ -1,7 +1,7 @@
 import { CopyCheckIcon, CopyIcon } from "lucide-react";
 import { useState, useMemo, useCallback, Fragment } from "react";
 
-import { Hint } from "@/components/ui/hint";
+import { Hint } from "@/components/hint";
 import { Button } from "@/components/ui/button";
 import { CodeView } from "@/components/code-view";
 import { convertFilesToTreeItems } from "@/lib/utils";
