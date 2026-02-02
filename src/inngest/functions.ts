@@ -7,11 +7,13 @@ import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompt";
 
 import { inngest } from "./client";
 import { SANDBOX_TIMEOUT } from "./types";
-import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput } from "./utils";
+import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput, extractThinkingContent } from "./utils";
 
 interface AgentState {
   summary: string;
   files: { [path: string]: string };
+  thinkingMessageId: string;
+  projectId: string;
 };
 
 export const codeAgentFunction = inngest.createFunction(
@@ -24,12 +26,25 @@ export const codeAgentFunction = inngest.createFunction(
       return sandbox.sandboxId;
     });
 
+    const thinkingMessageId = await step.run("create-thinking-message", async () => {
+      const message = await prisma.message.create({
+        data: {
+          projectId: event.data.projectId,
+          content: "Thinking...",
+          role: "ASSISTANT",
+          type: "THINKING",
+        },
+      });
+      return message.id;
+    });
+
     const previousMessages = await step.run("get-previous-messages", async () => {
       const formattedMessages: Message[] = [];
 
       const messages = await prisma.message.findMany({
         where: {
           projectId: event.data.projectId,
+          type: { not: "THINKING" }, // Exclude thinking messages from context
         },
         orderBy: {
           createdAt: "desc",
@@ -52,6 +67,8 @@ export const codeAgentFunction = inngest.createFunction(
       {
         summary: "",
         files: {},
+        thinkingMessageId: thinkingMessageId,
+        projectId: event.data.projectId,
       },
       {
         messages: previousMessages,
@@ -163,6 +180,20 @@ export const codeAgentFunction = inngest.createFunction(
             lastAssistantTextMessageContent(result);
 
           if (lastAssistantMessageText && network) {
+            // Update the thinking message with current progress
+            const thinkingContent = extractThinkingContent(lastAssistantMessageText);
+            if (thinkingContent) {
+              try {
+                await prisma.message.update({
+                  where: { id: network.state.data.thinkingMessageId },
+                  data: { content: thinkingContent },
+                });
+              } catch (error) {
+                // Message might already be deleted - this is fine, just continue
+                console.log("Thinking message update skipped (may be deleted)");
+              }
+            }
+
             if (lastAssistantMessageText.includes("<task_summary>")) {
               network.state.data.summary = lastAssistantMessageText;
             }
@@ -227,6 +258,11 @@ export const codeAgentFunction = inngest.createFunction(
     });
 
     await step.run("save-result", async () => {
+      // Delete the thinking message now that we have a result
+      await prisma.message.delete({
+        where: { id: thinkingMessageId },
+      });
+
       if (isError) {
         return await prisma.message.create({
           data: {
