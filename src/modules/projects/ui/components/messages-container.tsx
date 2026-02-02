@@ -12,12 +12,14 @@ interface Props {
     projectId: string;
     activeFragment: Fragment | null;
     setActiveFragment: (fragment: Fragment | null) => void;
+    hideForm?: boolean;
 };
 
 export const MessagesContainer = ({
     projectId,
     activeFragment,
-    setActiveFragment
+    setActiveFragment,
+    hideForm = false
 }: Props) => {
     const trpc = useTRPC();
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -91,10 +93,12 @@ export const MessagesContainer = ({
                     <div ref={bottomRef} />
                 </div>
             </div>
-            <div className="relative p-3 pt-1">
-                <div className="absolute -top-6 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-background pointer-events-none" />
-                <MessageForm projectId={projectId} />
-            </div>
+            {!hideForm && (
+                <div className="relative p-3 pt-1">
+                    <div className="absolute -top-6 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-background pointer-events-none" />
+                    <MessageForm projectId={projectId} />
+                </div>
+            )}
         </div>
     );
 };
