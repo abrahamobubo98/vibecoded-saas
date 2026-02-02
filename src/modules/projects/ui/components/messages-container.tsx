@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 
 import { useTRPC } from "@/trpc/client";
@@ -22,16 +22,34 @@ export const MessagesContainer = ({
     const trpc = useTRPC();
     const bottomRef = useRef<HTMLDivElement>(null);
     const lastAssistantMessageIdRef = useRef<string | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const { data: messages } = useSuspenseQuery(trpc.messages.getMany.queryOptions({
         projectId: projectId,
     }, {
-        refetchInterval: 2000,
+        // Poll faster when processing (1s) vs idle (2s)
+        refetchInterval: isProcessing ? 1000 : 2000,
     }));
 
+    // Find thinking message to display its content
+    const thinkingMessage = messages.find((message) => message.type === "THINKING");
+
+    // Filter out THINKING messages from the main display
+    const displayMessages = messages.filter((message) => message.type !== "THINKING");
+
+    // Show loading if there's a thinking message or if last message is from user
+    const lastMessage = displayMessages[displayMessages.length - 1];
+    const currentlyProcessing = !!thinkingMessage || lastMessage?.role === "USER";
+
+    // Update processing state to affect refetch interval
     useEffect(() => {
-        const lastAssistantMessage = messages.findLast(
-            (message) => message.role === "ASSISTANT"
+        setIsProcessing(currentlyProcessing);
+    }, [currentlyProcessing]);
+
+    // Auto-select fragment when new assistant messages arrive
+    useEffect(() => {
+        const lastAssistantMessage = displayMessages.findLast(
+            (message) => message.role === "ASSISTANT" && message.type !== "THINKING"
         );
 
         if (
@@ -41,20 +59,18 @@ export const MessagesContainer = ({
             setActiveFragment(lastAssistantMessage.fragment);
             lastAssistantMessageIdRef.current = lastAssistantMessage.id;
         }
-    }, [messages, setActiveFragment]);
+    }, [displayMessages, setActiveFragment]);
 
+    // Auto-scroll to bottom when new messages arrive
     useEffect(() => {
         bottomRef.current?.scrollIntoView();
     }, [messages.length]);
-
-    const lastMessage = messages[messages.length - 1];
-    const isLastMessageUser = lastMessage?.role === "USER";
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
             <div className="flex-1 min-h-0 overflow-y-auto">
                 <div className="pt-2 pr-1">
-                    {messages.map((message) => (
+                    {displayMessages.map((message) => (
                         <MessageCard
                             key={message.id}
                             content={message.content}
@@ -66,7 +82,12 @@ export const MessagesContainer = ({
                             type={message.type}
                         />
                     ))}
-                    {isLastMessageUser && <MessageLoading />}
+                    {isProcessing && (
+                        <MessageLoading
+                            thinkingContent={thinkingMessage?.content}
+                            startTime={thinkingMessage?.createdAt}
+                        />
+                    )}
                     <div ref={bottomRef} />
                 </div>
             </div>
